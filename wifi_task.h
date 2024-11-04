@@ -116,13 +116,8 @@ extern cy_thread_t wifi_task_pointer;
 
 /* Maintains the connection id of the current connection */
 extern uint16_t conn_id;
+extern int credentials_present;
 
-/* This variable is set to true when button callback is received and
- * data is present in NVRAM. It is set to false after the WiFi Task
- * processes Disconnection notification. It is used to check button
- * interrupt while the device is trying to connect to WiFi
- */
-extern volatile bool button_pressed;
 /******************************************************************************
  *                              Function Prototypes
  ******************************************************************************/
@@ -130,6 +125,7 @@ void wifi_task(cy_thread_arg_t pvParameters);
 void scan_notify_task(cy_thread_arg_t pvParameters);
 void scan_callback(cy_wcm_scan_result_t *result_ptr, void *user_data,
                    cy_wcm_scan_status_t status);
+int check_credentials();
 /* __WIFI_TASK_H__ */
 
 

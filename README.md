@@ -4,7 +4,7 @@ This code example uses the Infineon Wi-Fi onboarding custom service via Bluetoot
 
 [View this README on GitHub.](https://github.com/Infineon/mtb-example-threadx-le-wifi-onboarding)
 
-[Provide feedback on this code example.](https://cypress.co1.qualtrics.com/jfe/form/SV_1NTns53sK2yiljn?Q_EED=eyJVbmlxdWUgRG9jIElkIjoiQ0UyMzk2NDgiLCJTcGVjIE51bWJlciI6IjAwMi0zOTY0OCIsIkRvYyBUaXRsZSI6IldpLUZpIHByb3Zpc2lvbmluZyB1c2luZyBCbHVldG9vdGgmcmVnOyBMRSIsInJpZCI6InZlbG11cnVnYW4iLCJEb2MgdmVyc2lvbiI6IjEuMC4wIiwiRG9jIExhbmd1YWdlIjoiRW5nbGlzaCIsIkRvYyBEaXZpc2lvbiI6Ik1DRCIsIkRvYyBCVSI6IklDVyIsIkRvYyBGYW1pbHkiOiJXSUZJIn0=)
+[Provide feedback on this code example.](https://cypress.co1.qualtrics.com/jfe/form/SV_1NTns53sK2yiljn?Q_EED=eyJVbmlxdWUgRG9jIElkIjoiQ0UyMzk2NDgiLCJTcGVjIE51bWJlciI6IjAwMi0zOTY0OCIsIkRvYyBUaXRsZSI6IldpLUZpIHByb3Zpc2lvbmluZyB1c2luZyBCbHVldG9vdGgmcmVnOyBMRSIsInJpZCI6InNoYWhzaHViaGFtcyIsIkRvYyB2ZXJzaW9uIjoiMS4xLjAiLCJEb2MgTGFuZ3VhZ2UiOiJFbmdsaXNoIiwiRG9jIERpdmlzaW9uIjoiTUNEIiwiRG9jIEJVIjoiSUNXIiwiRG9jIEZhbWlseSI6IldJRkkifQ==)
 
 
 ## Requirements
@@ -182,9 +182,9 @@ For more details, see the [ModusToolbox&trade; tools package user guide](https:/
 
    The device initializes the Bluetooth&reg; stack and starts advertisement.
 
-   **Figure 2. Boot-up log**
+   **Figure 1. Boot-up log**
    
-   ![Figure 2](./images/figure-1.png)
+   ![Figure 1](./images/figure-1.png)
 
 5. Do the following to test using the AIROC&trade; Bluetooth&reg; Connect App mobile application:
 
@@ -204,7 +204,7 @@ For more details, see the [ModusToolbox&trade; tools package user guide](https:/
 
          > **Note:** If the notifications are not enabled in the characteristic with UUID ending in 66 the scan does not start as there is no way to report available networks to the user. The user can still connect to a network by entering the Wi-Fi SSID (in UUID ending with 63), password (in UUID ending with 64), and then initiate a connect request by writing '1' in the Wi-Fi control characteristic (in UUID ending with 67).
 
-    7. To connect to the Wi-Fi network, send the SSID and password data to the client device. Select one of the networks which was discovered during scan or give another set of details. If the given network is not available then the device will store the values and try to connect on the next restart. Note that the data is stored in non-volatile storage only when the connect command is sent. The Wi-Fi credentials can be sent by either sending the Wi-Fi SSID and password separately or together.
+    7. To connect to the Wi-Fi network, send the SSID and password data to the client device. Select one of the networks which was discovered during scan or give another set of details. If the given network is not available then the device will store the values and try to connect on the next restart. Note that the data is stored in external flash only when the connect command is sent. The Wi-Fi credentials can be sent by either sending the Wi-Fi SSID and password separately or together.
 
        1. Sending the SSID and password separately:
            1. Select the UUID ending in 63. Write the Wi-Fi SSID in hex or ASCII format.
@@ -223,20 +223,29 @@ For more details, see the [ModusToolbox&trade; tools package user guide](https:/
        > **Note:** You can use an online tool for converting the SSID and password from string to hex format but be aware of where you type in your password.
 
 
-       **Figure 3. AIROC&trade; Bluetooth&reg; Connect App flow**
+       **Figure 2. AIROC&trade; Bluetooth&reg; Connect App flow**
 
-       ![Figure 3](./images/figure-2.png)
+       ![Figure 2](./images/figure-2.png)
 
     9. Select the attribute with the UUID ending in **67**. Select **Notify** (if not done earlier). Write hex value '1' to this characteristic to connect to the Wi-Fi network. If the connection is successful then the server will send a notification with value '1' otherwise with value '0'.
 
-       **Figure 4. Connection log**
+       **Figure 3. Connection log**
 
-       ![Figure 4](./images/figure-3.png)
+       ![Figure 3](./images/figure-3.png)
 
-6. Once the Wi-Fi SSID and password is provided by the client it is stored in the NVRAM. To delete this data the user needs to press the user button.
+6. Once the Wi-Fi SSID and password is provided by the client, it is stored in the external flash. 
 
+7. The device can use this data upon reset to connect to an AP without requiring Bluetooth&reg; LE intervention. 
 
-   > **Note:** The NVRAM storage is not enabled in this release and will be added in subsequent releases.
+   **Figure 4. KV-Store Capability**
+
+   ![Figure 4](./images/figure-4.png)
+
+8. Press the user button to remove the Wi-Fi credentials from the external flash. Once deleted, you can input and save the new credentials by following the steps from 5 onwards.
+
+   **Figure 5. Deleting Wi-Fi Credentials**
+
+   ![Figure 5](./images/figure-5.png)
  
 
 ## Debugging
@@ -245,7 +254,7 @@ You can debug the example to step through the code.
 
 <details><summary><b>In Eclipse IDE</b></summary>
 
-Use the **\<Application Name> Debug (KitProg3_MiniProg4)** configuration in the **Quick Panel**. For details, see the "Program and debug" section in the [Eclipse IDE for ModusToolbox&trade; user guide](https://www.infineon.com/MTBEclipseIDEUserGuide).
+Use the **\<Application Name> Attach (KitProg3_MiniProg4)** configuration in the **Quick Panel**. For details, see the "Program and debug" section in the [Eclipse IDE for ModusToolbox&trade; user guide](https://www.infineon.com/MTBEclipseIDEUserGuide).
 
 
 </details>
@@ -257,12 +266,11 @@ Follow the instructions in your preferred IDE.
 
 </details>
 
+For Bluetooth HCI logs set `ENABLE_SPY_TRACES = 1` in the makefile. You can use [BTSPY](https://github.com/Infineon/btsdk-utils) utility to view the SPY logs and debug protocol related issues. Refer [AIROC&trade; HCI Transport readme](https://github.com/Infineon/airoc-hci-transport/blob/master/README.md#quick-start) for more details.
+
 ## Design and implementation
 
-In this example, Bluetooth&reg; LE provides a mechanism for the device to connect to a Wi-Fi AP by providing the Wi-Fi SSID and password in a secure manner. The Wi-Fi credentials are stored in NVRAM so that the device can use this data upon reset to connect to an AP without requiring Bluetooth&reg; LE intervention. Note that the data stored in the NVRAM is unencrypted.
-
-
-> **Note:** The NVRAM storage is not enabled in this release and will be added in subsequent releases.
+In this example, Bluetooth&reg; LE provides a mechanism for the device to connect to a Wi-Fi AP by providing the Wi-Fi SSID and password in a secure manner. The Wi-Fi credentials are stored in external flash so that the device can use this data upon reset to connect to an AP without requiring Bluetooth&reg; LE intervention. Note that the data stored in the extrenal flash is unencrypted.
 
 
 The Wi-Fi SSID and password are exchanged using custom GATT service and characteristics. There are a few characteristics to send the SSID and password. The first two are used to send the SSID and password separately and the third is used to send the data together as described previously. The fourth characteristic is to receive Wi-Fi network details when the device is asked to scan for networks. There is a fifth custom characteristic, which gives the command to connect, disconnect and scan. Only the Wi-Fi SSID characteristic is readable; all others are either writable or notifiable or both. The device needs to be paired before any characteristic can be read from or written to.
@@ -282,7 +290,7 @@ The Wi-Fi SSID and password are exchanged using custom GATT service and characte
  **Function name** | **Functionality** 
 -------------------|-------------------
  `main` | This is the main function for the CM33 CPU. It does the following: <br> 1. Initializes the BSP <br> 2. Enables global interrupt <br> 3. Initializes Retarget IO <br> 4. Initializes platform configuration <br> 5. Creates Wi-Fi connect and disconnect tasks
-| `application_init` |This function is called from the BTM enabled event, and does the following: <br> 1. Creates a WICED heap <br> 2. Initializes button GPIO, enable interrupt and register callback <br> 3. Checks if Wi-Fi credential data is available in the NVRAM <br> 4. Initializes and registers the GATT DB <br> 5. Sets pairable mode to `TRUE` <br> 6. Sets Adv data and starts advertising 
+| `application_init` |This function is called from the BTM enabled event, and does the following: <br> 1. Creates a WICED heap <br> 2. Initializes button GPIO, enable interrupt and register callback <br> 3. Checks if Wi-Fi credential data is available in the external flash <br> 4. Initializes and registers the GATT DB <br> 5. Sets pairable mode to `TRUE` <br> 6. Sets Adv data and starts advertising 
 `app_management_cback` | Handles Bluetooth&reg; stack events 
 `app_get_attribute` | Searches through the GATT DB to point to the attribute corresponding to the given handle 
 `app_gatts_req_read_handler` | Handles GATT read request events from Bluetooth&reg; stack 
@@ -291,7 +299,7 @@ The Wi-Fi SSID and password are exchanged using custom GATT service and characte
 `app_gatt_connect_callback` | Handles GATT connect request events from Bluetooth&reg; stack 
 `app_gatts_req_cb` | Redirects GATT attribute requests to the appropriate functions 
 `app_gatts_callback` | This is the callback function for GATT events that is registered when the GATT database is initialized in the BTM enabled event.
-`gpio_interrupt_handler` | GPIO interrupt service routine. This function detects button presses, deletes the Wi-Fi data from the NVRAM, and starts Bluetooth&reg; LE Adv. 
+`gpio_interrupt_handler` | GPIO interrupt service routine. This function detects button presses, deletes the Wi-Fi data from the external flash, and starts Bluetooth&reg; LE Adv. 
 
 <br>
 
@@ -347,7 +355,8 @@ Document title: *CE239648* - *Wi-Fi provisioning using Bluetooth&reg; LE*
 
 Version | Description of change
 ------- | ---------------------
-1.0.0   | New code example      
+| 1.0.0   | New code example   |
+| 1.1.0   | Added functionality to store credentials in External flash    |
 
 <br>
 

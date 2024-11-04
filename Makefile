@@ -111,6 +111,16 @@ DEFINES += RX_PACKET_POOL_SIZE=20
 DEFINES += WCM_WORKER_THREAD_STACK_SIZE=5120
 DEFINES += SECURE_SOCKETS_THREAD_STACKSIZE=1024
 
+# Optionally enable app and Bluetooth protocol traces and route to BTSpy
+# add airoc-hci-transport from library manager before enabling
+ENABLE_SPY_TRACES = 0
+
+ifeq ($(ENABLE_SPY_TRACES),1)
+DEFINES+=ENABLE_SPY_LOGS DEBUG_UART_BAUDRATE=3000000
+else
+DEFINES+=ENABLE_AIROC_HCI_TRANSPORT_PRINTF=0
+endif
+
 # Select softfp or hardfp floating point. Default is softfp.
 VFP_SELECT=
 

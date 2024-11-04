@@ -57,6 +57,11 @@
 #include "wiced_transport.h"
 #include "wiced_transport.h"
 #include "cy_retarget_io.h"
+#include "mtb_kvstore_cat5.h"
+
+#ifdef ENABLE_SPY_LOGS
+#include "cybt_debug_uart.h"
+#endif
 
 /******************************************************************************
  *                                Constants
@@ -69,7 +74,23 @@
 #define MAX_KEY_SIZE (16)
 
 /*Queue size*/
-#define QUEUE_SIZE  (2)
+#define QUEUE_SIZE  (5)
+
+#define key_ssid 1
+#define key_pwd 2
+
+#ifdef ENABLE_SPY_LOGS
+
+cybt_debug_uart_config_t config = {
+                        .uart_tx_pin = CYBSP_DEBUG_UART_TX,
+                        .uart_rx_pin = CYBSP_DEBUG_UART_RX,
+                        .uart_cts_pin = CYBSP_DEBUG_UART_CTS,
+                        .uart_rts_pin = CYBSP_DEBUG_UART_RTS,
+                        .baud_rate = DEBUG_UART_BAUDRATE,
+                        .flow_control = TRUE
+};
+
+#endif //ENBALE_SPY_LOGS
 
 /******************************************************************************
  *                                 TYPEDEFS
@@ -90,18 +111,26 @@ cy_thread_t scan_notify_task_pointer;
 /* Maintains the connection id of the current connection */
 uint16_t conn_id = 0;
 
-/* This variable is set to true when button callback is received and
- * data is present in NVRAM. It is set to false after the WiFi Task
- * processes Disconnection notification. It is used to check button
- * interrupt while the device is trying to connect to WiFi. This is not enabled
- * in current release.
- */
-volatile bool button_pressed = false;
+mtb_kvstore_t  kvstore_obj;
 
 extern uint32_t ulNotifiedValue;
 
 /* Queue for communication with scan Task*/
 cy_queue_t xScanResultQueue;
+
+#ifdef ENABLE_SPY_LOGS
+
+  #define MPAF_TRACE_BUFFER_SIZE  1100
+  char mpaf_trace_buffer[MPAF_TRACE_BUFFER_SIZE];
+
+  typedef void (wiced_bt_debug_trace_cback_t)(char* p_trace_buf, int trace_buf_len, wiced_bt_trace_type_t trace_type);
+  extern void wiced_bt_dev_register_debug_trace (wiced_bt_debug_trace_cback_t *p_cback, char* p_trace_buf, int trace_buf_len);
+
+  void debug_trace_cback(char *p_trace_buf, int trace_buf_len, wiced_bt_trace_type_t trace_type)
+  {
+      cybt_debug_uart_send_trace(trace_buf_len, (uint8_t*)p_trace_buf);
+  }
+#endif
 
 /******************************************************************************
  *                              Function Prototypes
@@ -109,7 +138,8 @@ cy_queue_t xScanResultQueue;
 static wiced_result_t app_management_callback(wiced_bt_management_evt_t event,
                                               wiced_bt_management_evt_data_t *p_event_data);
 static wiced_bt_gatt_status_t app_gatts_callback(wiced_bt_gatt_evt_t event,
-                                                 wiced_bt_gatt_event_data_t *p_data);
+                                                wiced_bt_gatt_event_data_t *p_data);
+static void gpio_init(void);
 static void application_init(void);
 static void gpio_interrupt_handler(void *handler_arg, cyhal_gpio_event_t event);
 
@@ -130,7 +160,6 @@ cyhal_gpio_callback_data_t cb_data =
 *    4. Initializes platform configuration
 *    5. Initializes BT stack and heap
 *    6. Creates WiFi task
-*    7. Starts the RTOS scheduler
 *
 * Return:
 *  int
@@ -149,7 +178,10 @@ int main()
     /* Enable global interrupts */
     __enable_irq();
 
-    
+#ifdef ENABLE_SPY_LOGS
+    cybt_debug_uart_init(&config, NULL);
+    wiced_bt_dev_register_debug_trace(debug_trace_cback, mpaf_trace_buffer, MPAF_TRACE_BUFFER_SIZE);
+#else
     /* Initialize retarget-io to use the debug UART port */
     result = cy_retarget_io_init(LHL_GPIO_2, LHL_GPIO_3,
                                      CY_RETARGET_IO_BAUDRATE);
@@ -159,12 +191,14 @@ int main()
         printf("Retarget IO init failed\n");
         CY_ASSERT(0);
     }
+#endif
 
+    printf("\x1b[2J\x1b[;H");
     printf("***************************\n"
             "Wi-Fi Onboarding Using BLE\n"
             "***************************\n\n");
 
-    /* Create a queue capable of unsigned integer values.
+    /* Create a queue to store scan results.
        this is used for communicating with notify task */
 
     result = cy_rtos_queue_init(&xScanResultQueue,QUEUE_SIZE,sizeof(scan_result_t));
@@ -174,6 +208,16 @@ int main()
         printf("Failed to create Queue for communication between scan callback and notify Task!!\r\n");
     }
 
+    /* Initialize the Bluetooth stack with a callback function and stack
+     * configuration structure
+     * Note: Bluetooth stack if used should be initialized before WLAN initialization */
+    if (WICED_SUCCESS !=
+        wiced_bt_stack_init(app_management_callback, &wiced_bt_cfg_settings)) {
+      printf("Error in initializing the BT stack\n");
+      CY_ASSERT(0);
+    }
+
+    /* TBD Create a task for handling WLAN  */
     result = cy_rtos_thread_create(&wifi_task_pointer,
                                    &wifi_task,
                                    "WiFi-Task",
@@ -186,7 +230,7 @@ int main()
         printf("WIFI task creation failed \r\n");
         CY_ASSERT(0);
     }
-
+    /* Create task for sending scan Notifications back to peer  */
     result = cy_rtos_thread_create(&scan_notify_task_pointer,
                                    &scan_notify_task,
                                    "notify-Task",
@@ -199,15 +243,34 @@ int main()
         printf("Scan notify task creation failed \r\n");
         CY_ASSERT(0);
     }
+    gpio_init();
+    cyhal_system_delay_ms(4000);
+}
 
-    /* Initialize the Bluetooth stack with a callback function and stack
-     * configuration structure */
-    if (WICED_SUCCESS != wiced_bt_stack_init(app_management_callback,
-            &wiced_bt_cfg_settings))
+/*******************************************************************************-
+* Function Name: gpio_init
+********************************************************************************
+* Summary:
+* This function initializes and registers the GPIO
+*
+*******************************************************************************/
+void gpio_init(void)
+{
+    cy_rslt_t cy_result;
+    /* Initialize the user button.*/
+    cy_result = cyhal_gpio_init(CYBSP_USER_BTN, CYHAL_GPIO_DIR_INPUT, CYHAL_GPIO_DRIVE_NONE, CYBSP_BTN_OFF);
+
+    if(cy_result)
     {
-        printf("Error in initializing the BT stack\n");
-        CY_ASSERT(0);
+        printf("GPIO Init failed\n");
     }
+
+    /* Configure GPIO interrupt */
+    cyhal_gpio_register_callback(CYBSP_USER_BTN,&cb_data);
+
+    /* Enabling button interrupt */
+    cyhal_gpio_enable_event(CYBSP_USER_BTN, CYHAL_GPIO_IRQ_FALL,
+                            GPIO_INTERRUPT_PRIORITY, true);
 }
 
 /*******************************************************************************-
@@ -224,21 +287,6 @@ void application_init(void)
 {
     wiced_result_t result = WICED_ERROR;
     wiced_bt_gatt_status_t gatt_status = WICED_BT_GATT_INVALID_CONNECTION_ID;
-    cy_rslt_t cy_result = 0;
-
-    /* Initialize the user button.*/
-    cy_result = cyhal_gpio_init(CYBSP_USER_BTN, CYHAL_GPIO_DIR_INPUT, CYHAL_GPIO_DRIVE_NONE, CYBSP_BTN_OFF);
-    if(cy_result)
-    {
-        printf("GPIO Init failed\n");
-    }
-
-    /* Configure GPIO interrupt */
-    cyhal_gpio_register_callback(CYBSP_USER_BTN,&cb_data);
-
-    /* Enabling button interrupt */
-    cyhal_gpio_enable_event(CYBSP_USER_BTN, CYHAL_GPIO_IRQ_FALL,
-                            GPIO_INTERRUPT_PRIORITY, true);
 
     /* Register with stack to receive GATT callback */
     gatt_status = wiced_bt_gatt_register(app_gatts_callback);
@@ -269,13 +317,24 @@ void application_init(void)
         printf("Set ADV data failed\n");
     }
 
-    result = wiced_bt_start_advertisements(BTM_BLE_ADVERT_UNDIRECTED_LOW,
-                                           BLE_ADDR_PUBLIC, NULL);
-    if (WICED_SUCCESS != result)
+    if(!check_credentials())
     {
-        printf("Start ADV failed");
+        result = wiced_bt_start_advertisements(BTM_BLE_ADVERT_UNDIRECTED_LOW,
+                                               BLE_ADDR_PUBLIC, NULL);
+        if (WICED_SUCCESS != result)
+        {
+            printf("Start ADV failed");
+        }
     }
+
 }
+
+#ifdef ENABLE_SPY_LOGS
+void hci_trace_cback(wiced_bt_hci_trace_type_t type, uint16_t length, uint8_t* p_data)
+{
+    cybt_debug_uart_send_hci_trace(type, length, p_data);
+}
+#endif
 
 /*******************************************************************************
 * Function Name: app_management_callback
@@ -303,6 +362,10 @@ wiced_result_t app_management_callback(wiced_bt_management_evt_t event,
     switch (event)
     {
     case BTM_ENABLED_EVT:
+#ifdef ENABLE_SPY_LOGS
+        /*Register callback for receiving HCI traces*/
+        wiced_bt_dev_register_hci_trace(hci_trace_cback);
+#endif
         /* Bluetooth is enabled */
         wiced_bt_set_local_bdaddr((uint8_t *)cy_bt_device_address,
                                    BLE_ADDR_PUBLIC);
@@ -322,7 +385,7 @@ wiced_result_t app_management_callback(wiced_bt_management_evt_t event,
         /* Print passkey to the screen so that the user can enter it. */
         printf( "********************************************************\r\n");
         printf( "Passkey Notification\r\n");
-        printf("PassKey: %" PRIu32 "\r\n", \
+        printf("PassKey: %06" PRIu32 "\r\n", \
         p_event_data->user_passkey_notification.passkey );
         printf( "***********************************************************\r\n");
         break;
@@ -389,6 +452,18 @@ wiced_result_t app_management_callback(wiced_bt_management_evt_t event,
     case BTM_BLE_PHY_UPDATE_EVT:
             printf("Selected RX PHY - %dM\nSelected TX PHY - %dM\nPeer address = ",
                     p_event_data->ble_phy_update_event.rx_phy, p_event_data->ble_phy_update_event.tx_phy);
+            break;
+
+    case BTM_BLE_CONNECTION_PARAM_UPDATE:
+            printf("Connection parameter update status:%d, Connection Interval: %d, Connection Latency: %d, Connection Timeout: %d\n",
+                                           p_event_data->ble_connection_param_update.status,
+                                           p_event_data->ble_connection_param_update.conn_interval,
+                                           p_event_data->ble_connection_param_update.conn_latency,
+                                           p_event_data->ble_connection_param_update.supervision_timeout);
+            break;
+
+    case BTM_BLE_DATA_LENGTH_UPDATE_EVENT:
+            printf("%d Data Length \r\n", p_event_data->ble_data_length_update_event.max_tx_octets);
             break;
 
     case BTM_BLE_ADVERT_STATE_CHANGED_EVT:
@@ -703,6 +778,7 @@ wiced_bt_gatt_status_t app_gatts_req_write_handler(uint16_t conn_id,
 
             if(0 != wifi_details.ssid_len)
             {
+                cy_rslt_t rslt_wrt_ssid, rslt_wrt_pwd;
                 /* Set the WiFi Connection parameters structure to 0 before copying
                  * data */
                 memset(&wifi_conn_param, 0, sizeof(cy_wcm_connect_params_t));
@@ -713,6 +789,16 @@ wiced_bt_gatt_status_t app_gatts_req_write_handler(uint16_t conn_id,
 
                 memcpy(wifi_conn_param.ap_credentials.password,
                        &wifi_details.wifi_password[0], wifi_details.password_len);
+
+                rslt_wrt_ssid = mtb_kvstore_write_numeric_key(&kvstore_obj, key_ssid, wifi_conn_param.ap_credentials.SSID, sizeof(wifi_conn_param.ap_credentials.SSID), true);
+
+                rslt_wrt_pwd = mtb_kvstore_write_numeric_key(&kvstore_obj, key_pwd, wifi_conn_param.ap_credentials.password, sizeof(wifi_conn_param.ap_credentials.password), true);
+
+                if(rslt_wrt_ssid == CY_RSLT_SUCCESS && rslt_wrt_pwd == CY_RSLT_SUCCESS)
+                {
+                    printf("Wi-Fi Credentials stored successfully\n");
+                }
+
 
                 /* Send notification to the WiFi task to scan and connect with
                  * the given WiFi credentials
@@ -815,6 +901,8 @@ wiced_bt_gatt_status_t app_gatt_connect_handler(
             print_bd_address(p_conn_status->bd_addr);
             printf("\n");
             conn_id = p_conn_status->conn_id;
+            /*Configure MTU to be able to send notification packets larger than 23 bytes*/
+            wiced_bt_gatt_client_configure_mtu(conn_id, CY_BT_RX_PDU_SIZE);
         }
         else /* Device got disconnected */
         {
@@ -900,13 +988,15 @@ wiced_bt_gatt_status_t app_gatts_attr_req_handler(wiced_bt_gatt_attribute_reques
                           wiced_bt_cfg_settings.p_ble_cfg->ble_max_rx_pdu_size);
         result = WICED_BT_GATT_SUCCESS;
         break;
-
+    case GATT_RSP_MTU:
+        printf("Exchanged MTU RSP from remote device: %d\n", p_data->data.remote_mtu);
+        break;
     case GATT_HANDLE_VALUE_NOTIF:
         result = WICED_BT_GATT_SUCCESS;
         break;
 
     default:
-        printf("GATT event not handled\n");
+        printf("GATT event not handled %d \r\n",p_data->opcode);
         result = WICED_BT_GATT_SUCCESS;
         break;
     }
@@ -984,7 +1074,7 @@ wiced_bt_gatt_status_t app_gatts_callback(wiced_bt_gatt_evt_t event,
     break;
 
     default:
-        printf("GATT event not handled\n");
+        printf("GATT event not handled %s\n",get_bt_gatt_evt_name(event));
     }
     return result;
 }
@@ -1007,7 +1097,7 @@ void gpio_interrupt_handler(void *handler_arg, cyhal_gpio_event_t event)
     cy_rslt_t result;
 
     /* Notify the WiFi task to disconnect */
-    button_pressed = true;
+    credentials_present = 0;
 
     ulNotifiedValue = NOTIF_DISCONNECT | NOTIF_ERASE_DATA;
     result = cy_rtos_thread_set_notification(&wifi_task_pointer);
